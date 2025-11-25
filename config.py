@@ -21,7 +21,7 @@ cfg = SimpleNamespace(
     ia_path = "kaggle/input/ias.csv",
     test_path = "kaggle/input/test_protein.csv",
     test_taxonomy_path = "kaggle/input/taxon.csv",
-    test_embedding_path = "kaggle/input/t5_embeddings_test.npy",
+    test_embedding_path = "kaggle/input/t5_embeddings_res_test.npy",
     top_k = 100,
     output = "submissionc.tsv"
 )

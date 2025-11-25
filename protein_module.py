@@ -64,6 +64,7 @@ class LitMLPModule(L.LightningModule):
         self.val_fmax_weighted = CAFAMetrics(ia=term_weights)
 
         self.compute_fmax = False
+        self.compute_expensive_metrics = False
 
 
     def forward(self, x_seq, x_tax):
@@ -99,9 +100,9 @@ class LitMLPModule(L.LightningModule):
         self.val_f1(preds, labels.int())
         self.log("val_f1", self.val_f1, on_step=False, on_epoch=True, prog_bar=True)
         self.val_auroc(preds, labels.int())
-        self.log("val_auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val_auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=False)
         self.val_auprc(preds, labels.int())
-        self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True, prog_bar=False)
 
         if self.compute_fmax:
             # Update CAFA metrics
