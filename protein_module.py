@@ -63,6 +63,8 @@ class LitMLPModule(L.LightningModule):
         self.val_fmax = CAFAMetrics()
         self.val_fmax_weighted = CAFAMetrics(ia=term_weights)
 
+        self.compute_fmax = False
+
 
     def forward(self, x_seq, x_tax):
         tax_emb = self.tax_embedding(x_tax) # (B, Tax_Dim)
@@ -101,26 +103,33 @@ class LitMLPModule(L.LightningModule):
         self.val_auprc(preds, labels.int())
         self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True, prog_bar=True)
 
-        # Update CAFA metrics
-        self.val_fmax.update(preds, labels)
-        self.val_fmax_weighted.update(preds, labels)
+        if self.compute_fmax:
+            # Update CAFA metrics
+            self.val_fmax.update(preds, labels)
+            self.val_fmax_weighted.update(preds, labels)
         
         return loss
     
     def on_validation_epoch_end(self):
-        # Compute and log F-max
-        fmax, prec, rec = self.val_fmax.compute()
-        self.log("val_fmax", fmax, prog_bar=True)
-        self.log("val_fmax_precision", prec)
-        self.log("val_fmax_recall", rec)
-        self.val_fmax.reset()
+        if self.compute_fmax:
+            # Compute and log F-max
+            fmax, prec, rec = self.val_fmax.compute()
+            self.log("val_fmax", fmax, prog_bar=True)
+            self.log("val_fmax_precision", prec)
+            self.log("val_fmax_recall", rec)
+            self.val_fmax.reset()
 
-        # Compute and log weighted F-max
-        fmax_w, prec_w, rec_w = self.val_fmax_weighted.compute()
-        self.log("val_fmax_weighted", fmax_w, prog_bar=True)
-        self.log("val_fmax_precision_weighted", prec_w)
-        self.log("val_fmax_recall_weighted", rec_w)
-        self.val_fmax_weighted.reset()
+            # Compute and log weighted F-max
+            fmax_w, prec_w, rec_w = self.val_fmax_weighted.compute()
+            self.log("val_fmax_weighted", fmax_w, prog_bar=True)
+            self.log("val_fmax_precision_weighted", prec_w)
+            self.log("val_fmax_recall_weighted", rec_w)
+            self.val_fmax_weighted.reset()
+            self.compute_fmax = False
+
+    def on_train_end(self):
+        self.compute_fmax = True
+        self.trainer.validate(self)
         
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         inputs = batch["embedding"]
@@ -147,7 +156,7 @@ class LitMLPModule(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "val_fmax_weighted", # Monitor the weighted F-max
+                "monitor": "val_auprc", # Monitor the auprc
                 "interval": "epoch",
                 "frequency": 1,
             },
