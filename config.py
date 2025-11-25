@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 cfg = SimpleNamespace( 
-    learning_rate = 1e-4,
+    learning_rate = 1e-3,
     batch_size = 64,    
     num_workers = 4,
     input_dim = 1024,      
@@ -23,5 +23,5 @@ cfg = SimpleNamespace(
     test_taxonomy_path = "kaggle/input/taxon.csv",
     test_embedding_path = "kaggle/input/t5_embeddings_res_test.npy",
     top_k = 100,
-    output = "submissionc.tsv"
+    output = "submissionf.tsv"
 )

@@ -91,8 +91,8 @@ def load_test_data(taxonomy_map):
         print(f"   Merging Test Taxonomy from {cfg.test_taxonomy_path}...")
         test_tax_df = pd.read_csv(cfg.test_taxonomy_path)
         
-        if 'EntryID' in test_tax_df.columns and 'taxonomyID' in test_tax_df.columns:
-            test_df = test_df.merge(test_tax_df[['EntryID', 'taxonomyID']], on='EntryID', how='left')
+        if 'EntryID' in test_tax_df.columns and 'taxonomyID' in test_tax_df.columns and 'id' in test_df.columns:
+            test_df = test_df.merge(test_tax_df[['EntryID', 'taxonomyID']], left_on='id', right_on='EntryID', how='left')
             test_df['taxonomyID'] = test_df['taxonomyID'].fillna(-1) 
         else:
             test_df['taxonomyID'] = -1

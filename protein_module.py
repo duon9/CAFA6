@@ -56,15 +56,6 @@ class LitMLPModule(L.LightningModule):
 
         # Validation Metrics
         self.val_f1 = torchmetrics.F1Score(task="multilabel", num_labels=num_labels, average='micro')
-        self.val_auroc = torchmetrics.AUROC(task="multilabel", num_labels=num_labels)
-        self.val_auprc = torchmetrics.AveragePrecision(task="multilabel", num_labels=num_labels)
-        
-        # CAFA F-max Metrics for validation
-        self.val_fmax = CAFAMetrics()
-        self.val_fmax_weighted = CAFAMetrics(ia=term_weights)
-
-        self.compute_fmax = False
-        self.compute_expensive_metrics = False
 
 
     def forward(self, x_seq, x_tax):
@@ -96,42 +87,11 @@ class LitMLPModule(L.LightningModule):
         loss, preds, labels = self._common_step(batch, "val")
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         
-        # Update validation metrics
         self.val_f1(preds, labels.int())
         self.log("val_f1", self.val_f1, on_step=False, on_epoch=True, prog_bar=True)
-        self.val_auroc(preds, labels.int())
-        self.log("val_auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=False)
-        self.val_auprc(preds, labels.int())
-        self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True, prog_bar=False)
 
-        if self.compute_fmax:
-            # Update CAFA metrics
-            self.val_fmax.update(preds, labels)
-            self.val_fmax_weighted.update(preds, labels)
-        
         return loss
     
-    def on_validation_epoch_end(self):
-        if self.compute_fmax:
-            # Compute and log F-max
-            fmax, prec, rec = self.val_fmax.compute()
-            self.log("val_fmax", fmax, prog_bar=True)
-            self.log("val_fmax_precision", prec)
-            self.log("val_fmax_recall", rec)
-            self.val_fmax.reset()
-
-            # Compute and log weighted F-max
-            fmax_w, prec_w, rec_w = self.val_fmax_weighted.compute()
-            self.log("val_fmax_weighted", fmax_w, prog_bar=True)
-            self.log("val_fmax_precision_weighted", prec_w)
-            self.log("val_fmax_recall_weighted", rec_w)
-            self.val_fmax_weighted.reset()
-            self.compute_fmax = False
-
-    def on_train_end(self):
-        self.compute_fmax = True
-        self.trainer.validate(self)
-        
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         inputs = batch["embedding"]
         tax_ids = batch["taxonomy_idx"]
@@ -157,7 +117,7 @@ class LitMLPModule(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "val_auprc", # Monitor the auprc
+                "monitor": "val_f1", # Monitor val_f1
                 "interval": "epoch",
                 "frequency": 1,
             },
