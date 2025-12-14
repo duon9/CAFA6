@@ -1,0 +1,11 @@
+lightning
+pandas
+numpy
+mlflow
+scikit-learn
+tqdm
+modal
+transformers
+torch
+cupy-cuda11x
+pyarrow

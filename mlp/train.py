@@ -10,7 +10,12 @@ from protein_module import LitMLPModule
 from config import cfg
 import gc
 import os
+from tqdm import tqdm
+import pyarrow as pa
+import pyarrow.parquet as pq
+import types
 
+# torch.serialization.add_safe_globals([types.SimpleNamespace])
 def load_and_align_train_data():
     print("1. Loading Training Data...")
     
@@ -57,8 +62,19 @@ def load_and_align_train_data():
     
     # Xác định label columns (loại bỏ các cột metadata)
     exclude_cols = ['EntryID', 'taxonomyID', 'original_index', 'seq'] 
-    label_cols = [c for c in full_df.columns if c in lbl_df.columns and c not in exclude_cols]
+    all_label_cols = [c for c in full_df.columns if c in lbl_df.columns and c not in exclude_cols]
     
+    if cfg.top_k is not None and cfg.top_k > 0:
+        print(f"   Filtering for top {cfg.top_k} most frequent labels...")
+        label_counts = full_df[all_label_cols].sum().sort_values(ascending=False)
+        top_k_labels = label_counts.head(cfg.top_k).index.tolist()
+        print(f"   Original number of labels: {len(all_label_cols)}")
+        print(f"   Number of labels after top-k filtering: {len(top_k_labels)}")
+        label_cols = top_k_labels
+    else:
+        print("   Skipping top-k label filtering. Using all labels.")
+        label_cols = all_label_cols
+
     # E. Build Taxonomy Map
     print("3. Building Taxonomy Map...")
     unique_taxonomies = full_df['taxonomyID'].unique()
@@ -91,13 +107,16 @@ def load_test_data(taxonomy_map):
         print(f"   Merging Test Taxonomy from {cfg.test_taxonomy_path}...")
         test_tax_df = pd.read_csv(cfg.test_taxonomy_path)
         
-        if 'EntryID' in test_tax_df.columns and 'taxonomyID' in test_tax_df.columns:
-            test_df = test_df.merge(test_tax_df[['EntryID', 'taxonomyID']], on='EntryID', how='left')
+        if 'EntryID' in test_tax_df.columns and 'taxonomyID' in test_tax_df.columns and 'id' in test_df.columns:
+            test_df = test_df.merge(test_tax_df[['EntryID', 'taxonomyID']], left_on='id', right_on='EntryID', how='left')
             test_df['taxonomyID'] = test_df['taxonomyID'].fillna(-1) 
+            test_df = test_df.drop(columns=['EntryID']) # Loại bỏ cột EntryID được thêm vào từ merge
+            test_df['taxonomyID'] = test_df['taxonomyID'].astype(int) # Chuyển đổi toàn bộ cột sang kiểu integer
         else:
             test_df['taxonomyID'] = -1
     else:
         test_df['taxonomyID'] = -1
+        test_df['taxonomyID'] = test_df['taxonomyID'].astype(int) # Đảm bảo kiểu dữ liệu nhất quán
         
     return test_df, test_emb
 
@@ -194,26 +213,40 @@ def main():
     print("Start Training...")
     trainer.fit(model, data_module)
     
-    # 8. Predict
+    best_model_path = checkpoint_callback.best_model_path
+    if best_model_path and os.path.exists(best_model_path):
+        print(f"Logging best model from {best_model_path} to MLflow...")
+        mlf_logger.experiment.log_artifact(mlf_logger.run_id, best_model_path, artifact_path="checkpoints")
+        print("   Best model logged as artifact.")
+    else:
+        print("   Could not find best model checkpoint to log as artifact.")
+    
     if test_df is not None:
         print("Predicting on Test Set...")
-        predictions = trainer.predict(model, dataloaders=data_module.test_dataloader(), ckpt_path='best')
+        predictions_iterator = trainer.predict(model, dataloaders=data_module.test_dataloader(), ckpt_path='best')
         
-        all_ids = []
-        all_scores = []
-        for batch in predictions:
-            all_ids.extend(batch['ids'])
-            all_scores.append(batch['predictions'])
+        print(f"Writing predictions incrementally to {cfg.output}...")
+        num_test_batches = len(data_module.test_dataloader())
+        
+        writer = None
+        try:
+            for i, batch in enumerate(tqdm(predictions_iterator, total=num_test_batches, desc="Writing Predictions")):
+                preds_tensor = batch['predictions'].cpu().numpy()
+                preds_df = pd.DataFrame(preds_tensor, columns=label_cols)
+                preds_df['EntryID'] = batch['ids']
+                
+                melted = preds_df.melt(id_vars='EntryID', var_name='term', value_name='score')
+                melted = melted[melted['score'] > 0.01]
+                
+                table = pa.Table.from_pandas(melted, preserve_index=False)
+                
+                if writer is None:
+                    writer = pq.ParquetWriter(cfg.output, table.schema, compression='snappy')
+                writer.write_table(table)
+        finally:
+            if writer:
+                writer.close()
             
-        preds_tensor = torch.cat(all_scores, dim=0).cpu().numpy()
-        
-        preds_df = pd.DataFrame(preds_tensor, columns=label_cols)
-        preds_df['EntryID'] = all_ids
-        
-        melted = preds_df.melt(id_vars='EntryID', var_name='term', value_name='score')
-        melted = melted[melted['score'] > 0.1] 
-        
-        melted.to_csv(cfg.output, sep='\t', index=False, header=False)
         print(f"Done. Saved to {cfg.output}")
 
 if __name__ == "__main__":
